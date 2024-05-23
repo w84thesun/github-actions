@@ -18,6 +18,7 @@ import (
 	"flag"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/sethvargo/go-githubactions"
@@ -38,89 +39,207 @@ func main() {
 	}
 
 	action.Infof("Extracted: %+v.", result)
-	action.Noticef("Extracted: https://%s", result.ghcr)
 
-	action.SetOutput("owner", result.owner)
-	action.SetOutput("name", result.name)
-	action.SetOutput("tag", result.tag)
-	action.SetOutput("ghcr", result.ghcr)
+	for _, image := range result.allInOneImages {
+		action.Noticef("All-in-one: %s (see %s)", image, imageURL(image))
+	}
+
+	for _, image := range result.developmentImages {
+		action.Noticef("Development: %s (see %s)", image, imageURL(image))
+	}
+
+	for _, image := range result.productionImages {
+		action.Noticef("Production: %s (see %s)", image, imageURL(image))
+	}
+
+	action.SetOutput("all_in_one_images", strings.Join(result.allInOneImages, ","))
+	action.SetOutput("development_images", strings.Join(result.developmentImages, ","))
+	action.SetOutput("production_images", strings.Join(result.productionImages, ","))
+}
+
+// imageURL returns URL for the given image name.
+func imageURL(name string) string {
+	switch {
+	case strings.HasPrefix(name, "ghcr.io/"):
+		return fmt.Sprintf("https://%s", name)
+	case strings.HasPrefix(name, "quay.io/"):
+		return fmt.Sprintf("https://%s", name)
+	}
+
+	name, _, _ = strings.Cut(name, ":")
+
+	// there is not easy way to get Docker Hub URL for the given tag
+	return fmt.Sprintf("https://hub.docker.com/r/%s/tags", name)
 }
 
 type result struct {
-	owner string // ferretdb
-	name  string // github-actions-dev
-	tag   string // pr-add-features or 0.0.1
-	ghcr  string // ghcr.io/ferretdb/github-actions-dev:pr-add-features or ghcr.io/ferretdb/github-actions-dev:0.0.1
+	allInOneImages    []string
+	developmentImages []string
+	productionImages  []string
+}
+
+// Sort sorts all images in-place.
+func (r *result) Sort() {
+	sort.Strings(r.allInOneImages)
+	sort.Strings(r.developmentImages)
+	sort.Strings(r.productionImages)
 }
 
 // https://semver.org/#is-there-a-suggested-regular-expression-regex-to-check-a-semver-string,
-// but with leading `v`
+// but with leading `v`.
 var semVerTag = regexp.MustCompile(`^v(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)\.(?P<patch>0|[1-9]\d*)(?:-(?P<prerelease>(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+(?P<buildmetadata>[0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$`)
 
+//nolint:goconst // "ferretdb" means different things
 func extract(action *githubactions.Action) (*result, error) {
-	result := new(result)
-
-	// set owner and name
-	repo := action.Getenv("GITHUB_REPOSITORY")
-	parts := strings.Split(strings.ToLower(repo), "/")
-	if len(parts) == 2 {
-		result.owner = parts[0]
-		result.name = parts[1]
+	// extract owner and name to support GitHub forks
+	parts := strings.Split(strings.ToLower(action.Getenv("GITHUB_REPOSITORY")), "/")
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("failed to extract owner or name")
 	}
-	if result.owner == "" || result.name == "" {
-		return nil, fmt.Errorf("failed to extract owner or name from %q", repo)
-	}
+	owner := parts[0]
+	name := parts[1]
 
-	// set tag, add "-dev" to name if needed
+	// extract tags for various events
 	event := action.Getenv("GITHUB_EVENT_NAME")
 	switch event {
 	case "pull_request", "pull_request_target":
-		// always add tag prefix and name suffix to prevent clashes on "main", "latest", etc
-		branch := action.Getenv("GITHUB_HEAD_REF")
-		parts = strings.Split(strings.ToLower(branch), "/") // for branches like "dependabot/submodules/XXX"
-		result.tag = "pr-" + parts[len(parts)-1]
-		result.name += "-dev"
+		// for branches like "dependabot/submodules/XXX"
+		branch := strings.ToLower(action.Getenv("GITHUB_HEAD_REF"))
+		parts = strings.Split(branch, "/")
+		branch = parts[len(parts)-1]
+
+		res := &result{
+			developmentImages: []string{
+				fmt.Sprintf("ghcr.io/%s/%s-dev:pr-%s", owner, name, branch),
+			},
+		}
+
+		// all-in-one only for FerretDB
+		if name == "ferretdb" {
+			res.allInOneImages = append(res.allInOneImages, fmt.Sprintf("ghcr.io/%s/all-in-one:pr-%s", owner, branch))
+
+			// no forks, no other repos for Quay.io and Docker Hub
+			if owner == "ferretdb" {
+				res.allInOneImages = append(res.allInOneImages, fmt.Sprintf("quay.io/ferretdb/all-in-one:pr-%s", branch))
+				res.developmentImages = append(res.developmentImages, fmt.Sprintf("quay.io/ferretdb/ferretdb-dev:pr-%s", branch))
+
+				res.allInOneImages = append(res.allInOneImages, fmt.Sprintf("ferretdb/all-in-one:pr-%s", branch))
+				res.developmentImages = append(res.developmentImages, fmt.Sprintf("ferretdb/ferretdb-dev:pr-%s", branch))
+			}
+		}
+
+		res.Sort()
+		return res, nil
 
 	case "push", "schedule", "workflow_run":
-		refType := action.Getenv("GITHUB_REF_TYPE")
-		refName := action.Getenv("GITHUB_REF_NAME")
+		refType := strings.ToLower(action.Getenv("GITHUB_REF_TYPE"))
+		refName := strings.ToLower(action.Getenv("GITHUB_REF_NAME"))
 
 		switch refType {
 		case "branch":
 			// build on pull_request/pull_request_target for other branches
-			if refName != "main" {
+			switch {
+			case refName == "main":
+				// nothing
+			case strings.HasPrefix(refName, "releases/"):
+				refName = strings.ReplaceAll(refName, "/", "-")
+			default:
 				return nil, fmt.Errorf("unhandled branch %q", refName)
 			}
-			result.tag = refName
-			result.name += "-dev"
+
+			res := &result{
+				developmentImages: []string{
+					fmt.Sprintf("ghcr.io/%s/%s-dev:%s", owner, name, refName),
+				},
+			}
+
+			// all-in-one only for FerretDB
+			if name == "ferretdb" {
+				res.allInOneImages = append(res.allInOneImages, fmt.Sprintf("ghcr.io/%s/all-in-one:%s", owner, refName))
+
+				// no forks, no other repos for Quay.io and Docker Hub
+				if owner == "ferretdb" {
+					res.allInOneImages = append(res.allInOneImages, fmt.Sprintf("quay.io/ferretdb/all-in-one:%s", refName))
+					res.developmentImages = append(res.developmentImages, fmt.Sprintf("quay.io/ferretdb/ferretdb-dev:%s", refName))
+
+					res.allInOneImages = append(res.allInOneImages, fmt.Sprintf("ferretdb/all-in-one:%s", refName))
+					res.developmentImages = append(res.developmentImages, fmt.Sprintf("ferretdb/ferretdb-dev:%s", refName))
+				}
+			}
+
+			res.Sort()
+			return res, nil
 
 		case "tag":
+			// extract version from git tag
 			match := semVerTag.FindStringSubmatch(refName)
 			if match == nil || len(match) != semVerTag.NumSubexp()+1 {
 				return nil, fmt.Errorf("unexpected git tag %q", refName)
 			}
-			result.name += "-dev" // TODO remove for https://github.com/FerretDB/FerretDB/issues/70
 			major := match[semVerTag.SubexpIndex("major")]
 			minor := match[semVerTag.SubexpIndex("minor")]
 			patch := match[semVerTag.SubexpIndex("patch")]
 			prerelease := match[semVerTag.SubexpIndex("prerelease")]
-			result.tag = major + "." + minor + "." + patch
+
+			version := major + "." + minor + "." + patch
 			if prerelease != "" {
-				result.tag += "-" + prerelease
+				version += "-" + prerelease
 			}
 
+			res := &result{
+				developmentImages: []string{
+					fmt.Sprintf("ghcr.io/%s/%s-dev:%s", owner, name, version),
+				},
+				productionImages: []string{
+					fmt.Sprintf("ghcr.io/%s/%s:%s", owner, name, version),
+				},
+			}
+
+			// all-in-one only for FerretDB
+			if name == "ferretdb" {
+				res.allInOneImages = append(res.allInOneImages, fmt.Sprintf("ghcr.io/%s/all-in-one:%s", owner, version))
+
+				// no forks, no other repos for Quay.io and Docker Hub
+				if owner == "ferretdb" {
+					res.allInOneImages = append(res.allInOneImages, fmt.Sprintf("quay.io/ferretdb/all-in-one:%s", version))
+					res.developmentImages = append(res.developmentImages, fmt.Sprintf("quay.io/ferretdb/ferretdb-dev:%s", version))
+					res.productionImages = append(res.productionImages, fmt.Sprintf("quay.io/ferretdb/ferretdb:%s", version))
+
+					res.allInOneImages = append(res.allInOneImages, fmt.Sprintf("ferretdb/all-in-one:%s", version))
+					res.developmentImages = append(res.developmentImages, fmt.Sprintf("ferretdb/ferretdb-dev:%s", version))
+					res.productionImages = append(res.productionImages, fmt.Sprintf("ferretdb/ferretdb:%s", version))
+				}
+			}
+
+			if prerelease == "" {
+				res.developmentImages = append(res.developmentImages, fmt.Sprintf("ghcr.io/%s/%s-dev:latest", owner, name))
+				res.productionImages = append(res.productionImages, fmt.Sprintf("ghcr.io/%s/%s:latest", owner, name))
+
+				// all-in-one only for FerretDB
+				if name == "ferretdb" {
+					res.allInOneImages = append(res.allInOneImages, fmt.Sprintf("ghcr.io/%s/all-in-one:latest", owner))
+
+					// no forks, no other repos for Quay.io and Docker Hub
+					if owner == "ferretdb" {
+						res.allInOneImages = append(res.allInOneImages, "quay.io/ferretdb/all-in-one:latest")
+						res.developmentImages = append(res.developmentImages, "quay.io/ferretdb/ferretdb-dev:latest")
+						res.productionImages = append(res.productionImages, "quay.io/ferretdb/ferretdb:latest")
+
+						res.allInOneImages = append(res.allInOneImages, "ferretdb/all-in-one:latest")
+						res.developmentImages = append(res.developmentImages, "ferretdb/ferretdb-dev:latest")
+						res.productionImages = append(res.productionImages, "ferretdb/ferretdb:latest")
+					}
+				}
+			}
+
+			res.Sort()
+			return res, nil
+
 		default:
-			return nil, fmt.Errorf("unhandled ref type %q", refType)
+			return nil, fmt.Errorf("unhandled ref type %q for event %q", refType, event)
 		}
 
 	default:
 		return nil, fmt.Errorf("unhandled event type %q", event)
 	}
-
-	if result.tag == "" {
-		return nil, fmt.Errorf("failed to extract tag for event %q", event)
-	}
-
-	result.ghcr = fmt.Sprintf("ghcr.io/%s/%s:%s", result.owner, result.name, result.tag)
-	return result, nil
 }

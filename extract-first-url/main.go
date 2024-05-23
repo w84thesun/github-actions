@@ -12,45 +12,48 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// This file is invoked from tools.go or old.go and should work with any version of Go.
-// Keep both old and new styles of build tags.
-
-//go:build ignore
-// +build ignore
-
 package main
 
 import (
+	"bufio"
 	"flag"
-	"log"
+	"os"
+	"path/filepath"
 	"regexp"
-	"runtime"
-	"strconv"
+
+	"github.com/sethvargo/go-githubactions"
+
+	"github.com/FerretDB/github-actions/internal"
 )
 
 func main() {
-	log.SetFlags(0)
-
-	oldF := flag.Bool("old", false, "")
 	flag.Parse()
 
-	if *oldF {
-		log.Fatalf("github-actions require Go 1.21 or later.")
-	}
+	action := githubactions.New()
+	internal.DebugEnv(action)
 
-	v := runtime.Version()
-	re := regexp.MustCompile(`go1\.(\d+)`)
-	m := re.FindStringSubmatch(v)
-	if len(m) != 2 {
-		log.Fatalf("Unexpected version %q.", v)
+	path := filepath.Join(action.Getenv("GITHUB_WORKSPACE"), "deploy.txt")
+	if u := extractURL(action, path); u != "" {
+		action.Noticef("Extracted URL: %s", u)
+		action.SetOutput("extracted_url", u)
 	}
+}
 
-	minor, err := strconv.Atoi(m[1])
+func extractURL(action *githubactions.Action, path string) string {
+	f, err := os.Open(path)
 	if err != nil {
-		log.Fatalf("Unexpected version %q: %s.", v, err)
+		action.Fatalf("%s", err)
+	}
+	defer f.Close()
+
+	re := regexp.MustCompile(`(https?://[^\s]+)`)
+	s := bufio.NewScanner(f)
+
+	for s.Scan() {
+		if u := re.FindString(s.Text()); u != "" {
+			return u
+		}
 	}
 
-	if minor < 18 {
-		log.Fatalf("github-actions require Go 1.21 or later. The version of `go` binary in $PATH is %q.", v)
-	}
+	return ""
 }

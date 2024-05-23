@@ -29,20 +29,35 @@ import (
 	"github.com/FerretDB/github-actions/internal"
 )
 
-func main() {
-	flag.Parse()
+// tidyDir runs `go mod tidy -v` in the specified directory.
+func tidyDir(action *githubactions.Action, dir string) {
+	cmd := exec.Command("go", "mod", "tidy", "-v")
+	cmd.Dir = dir
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
 
-	action := githubactions.New()
+	start := time.Now()
 
-	internal.DebugEnv(action)
+	action.Infof("Running `%s` in %s ...", strings.Join(cmd.Args, " "), cmd.Dir)
 
-	// check environment variables
-	workspace := action.Getenv("GITHUB_WORKSPACE")
+	if err := cmd.Run(); err != nil {
+		action.Fatalf("%s", err)
+	}
+
+	action.Infof("Done in %s.", time.Since(start))
+}
+
+// checkEnv verifies that environment variables are set correctly.
+//
+//nolint:wsl // to group things better
+func checkEnv(action *githubactions.Action) (workspace, gocache string) {
+	workspace = action.Getenv("GITHUB_WORKSPACE")
 	gopath := action.Getenv("GOPATH")
-	gocache := action.Getenv("GOCACHE")
+	gocache = action.Getenv("GOCACHE")
 	golangciLintCache := action.Getenv("GOLANGCI_LINT_CACHE")
 	gomodcache := action.Getenv("GOMODCACHE")
 	goproxy := action.Getenv("GOPROXY")
+	gotoolchain := action.Getenv("GOTOOLCHAIN")
 
 	if workspace == "" {
 		action.Fatalf("GITHUB_WORKSPACE is not set")
@@ -50,6 +65,7 @@ func main() {
 	if gopath == "" {
 		action.Fatalf("GOPATH is not set")
 	}
+
 	if gocache == "" {
 		action.Fatalf("GOCACHE is not set")
 	}
@@ -58,9 +74,6 @@ func main() {
 	}
 	if gomodcache == "" {
 		action.Fatalf("GOMODCACHE is not set")
-	}
-	if goproxy == "" {
-		action.Fatalf("GOPROXY is not set")
 	}
 
 	if !strings.HasPrefix(gocache, gopath) {
@@ -72,12 +85,27 @@ func main() {
 	if strings.HasPrefix(gomodcache, gocache) {
 		action.Fatalf("GOMODCACHE must not be a subdirectory of GOCACHE")
 	}
+
 	if goproxy != "https://proxy.golang.org" {
 		action.Fatalf("GOPROXY must be explicitly set to `https://proxy.golang.org` (without `direct`)")
 	}
+	if gotoolchain != "local" {
+		action.Fatalf("GOTOOLCHAIN must be explicitly set to `local` (without `auto`)")
+	}
+
+	return
+}
+
+func main() {
+	flag.Parse()
+
+	action := githubactions.New()
+
+	internal.DebugEnv(action)
+	workspace, gocache := checkEnv(action)
 
 	// set parameters for the cache key
-	_, week := time.Now().ISOWeek()
+	_, week := time.Now().UTC().ISOWeek() // starts on Monday
 	action.SetOutput("cache_week", "w"+strconv.Itoa(week))
 	action.SetOutput("cache_path", gocache)
 
@@ -101,16 +129,7 @@ func main() {
 			return nil
 		}
 
-		cmd := exec.Command("go", "mod", "tidy")
-		cmd.Dir = filepath.Dir(path)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		start := time.Now()
-		action.Infof("Running `%s` in %s ...", strings.Join(cmd.Args, " "), cmd.Dir)
-		if err = cmd.Run(); err != nil {
-			return err
-		}
-		action.Infof("Done in %s.", time.Since(start))
+		tidyDir(action, filepath.Dir(path))
 
 		return nil
 	})

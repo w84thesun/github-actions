@@ -25,6 +25,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/google/go-github/v49/github"
+	"github.com/jdkato/prose/v2"
 	"github.com/sethvargo/go-githubactions"
 	"golang.org/x/exp/maps"
 	"golang.org/x/exp/slices"
@@ -136,11 +137,19 @@ func (c *checker) runChecks(ctx context.Context, org, user, nodeID string) ([]ch
 	}
 
 	var res []checkResult
+	for _, err := range checkLabels(c.action, pr.Labels) {
+		res = append(res, checkResult{
+			check: "Labels",
+			err:   err,
+		})
+	}
 
-	res = append(res, checkResult{
-		check: "Labels",
-		err:   checkLabels(c.action, pr.Labels),
-	})
+	if res == nil {
+		res = append(res, checkResult{
+			check: "Labels",
+		})
+	}
+
 	res = append(res, checkResult{
 		check: "Size",
 		err:   checkSize(c.action, pr.ProjectFields),
@@ -166,38 +175,66 @@ func (c *checker) runChecks(ctx context.Context, org, user, nodeID string) ([]ch
 }
 
 // checkLabels checks if PR's labels are valid.
-func checkLabels(action *githubactions.Action, labels []string) error {
-	var res []string
+func checkLabels(_ *githubactions.Action, labels []string) []error {
+	var res []error
 
-	for _, l := range []string{
-		"good first issue",
-		"help wanted",
-		"not ready",
-		"scope changed",
+	if slices.Contains(labels, "do not merge") {
+		res = append(res, fmt.Errorf("That PR should not be merged yet."))
+	}
 
-		// temporary labels for issues
-		"code/tigris",
-		"fuzz",
-		"validation",
-	} {
+	if slices.Contains(labels, "not ready") {
+		res = append(res, fmt.Errorf("That PR can't be merged yet; remove `not ready` label."))
+	}
+
+	var incorrect []string
+
+	for _, l := range labels {
+		switch {
+		case l == "badly estimated":
+		case l == "good first issue":
+		case l == "help wanted":
+		case l == "scope changed":
+		case strings.HasPrefix("l", "area/"):
+		case strings.HasPrefix("l", "backend/"):
+		default:
+			continue
+		}
+
+		incorrect = append(incorrect, l)
+	}
+
+	if incorrect != nil {
+		res = append(res, fmt.Errorf("Those labels should not be applied to PRs: %s.", strings.Join(incorrect, ", ")))
+	}
+
+	var found bool
+
+	required := []string{
+		"blog/engineering",
+		"blog/marketing",
+		"code/bug",
+		"code/bug-regression",
+		"code/chore",
+		"code/enhancement",
+		"code/feature",
+		"deps",
+		"documentation",
+		"project",
+	}
+	for _, l := range required {
 		if slices.Contains(labels, l) {
-			res = append(res, l)
+			found = true
 		}
 	}
 
-	if res != nil {
-		return fmt.Errorf("Those labels should not be applied to PRs: %s.", strings.Join(res, ", "))
+	if !found {
+		res = append(res, fmt.Errorf(
+			"PR must have at least one of those labels:<br />%s.",
+			strings.Join(required, ", "),
+		))
 	}
 
-	if slices.Contains(labels, "do not merge") {
-		return fmt.Errorf("That PR should not be merged yet.")
-	}
-
-	if slices.Contains(labels, "no ci") {
-		return fmt.Errorf("That PR can't be merged yet; remove `no ci` label.")
-	}
-
-	return nil
+	return res
 }
 
 // checkSize checks that PR has a "Size" field unset.
@@ -240,11 +277,32 @@ func checkSprint(_ *githubactions.Action, projectFields map[string]graphql.Field
 	return errors.New(msg)
 }
 
-// checkTitle checks if PR's title does not end with dot.
+// checkTitle checks if PR's title does not end with dot
+// and also check if it starts with an imperative verb.
 func checkTitle(_ *githubactions.Action, title string) error {
+	uppercaseRegexp := regexp.MustCompile("^[A-Z]+")
+	if match := uppercaseRegexp.MatchString(title); !match {
+		return fmt.Errorf("PR title must start with an uppercase letter.")
+	}
+
 	titleRegexp := regexp.MustCompile("[a-zA-Z0-9`'\"]$")
 	if match := titleRegexp.MatchString(title); !match {
 		return fmt.Errorf("PR title must end with a latin letter or digit.")
+	}
+
+	firstWord := strings.Split(title, " ")[0]
+	doc, err := prose.NewDocument("I " + firstWord)
+	if err != nil {
+		return fmt.Errorf("error parsing PR title.")
+	}
+
+	tokens := doc.Tokens()
+	tok := tokens[1]
+
+	// imperative verbs have "VBP" tag
+	// https://github.com/jdkato/prose/tree/v2#tagging
+	if tok.Tag != "VBP" {
+		return fmt.Errorf("PR title must start with an imperative verb (got %q).", tok.Tag)
 	}
 
 	return nil
@@ -273,7 +331,7 @@ func checkBody(action *githubactions.Action, body string) error {
 }
 
 // checkAutoMerge checks if PR's auto-merge is enabled.
-func checkAutoMerge(action *githubactions.Action, pr *graphql.PullRequest, community bool) error {
+func checkAutoMerge(_ *githubactions.Action, pr *graphql.PullRequest, community bool) error {
 	if pr.Closed || pr.AutoMerge {
 		return nil
 	}

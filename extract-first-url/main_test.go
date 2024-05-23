@@ -12,14 +12,26 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Keep both old and new styles of build tags.
+package main
 
-//go:build !go1.21
-// +build !go1.21
+import (
+	"path/filepath"
+	"testing"
 
-package tools
+	"github.com/sethvargo/go-githubactions"
+	"github.com/stretchr/testify/assert"
+)
 
-// The version of Go used in `go generate` command is old - we know that from the build tags above.
-// Let the user know.
+func TestExtractURL(t *testing.T) {
+	action := githubactions.New()
 
-//go:generate go run check.go -old
+	t.Run("Normal", func(t *testing.T) {
+		actual := extractURL(action, filepath.Join("testdata", "deploy.txt"))
+		assert.Equal(t, "https://1bc44225.ferretdb-docs-dev.pages.dev", actual)
+	})
+
+	t.Run("Empty", func(t *testing.T) {
+		actual := extractURL(action, filepath.Join("testdata", "empty.txt"))
+		assert.Equal(t, "", actual)
+	})
+}

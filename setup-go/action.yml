@@ -5,14 +5,19 @@ inputs:
   cache-key:
     description: "First part of key for restoring cache."
     required: true
+outputs:
+  cache_week:
+    description: "Cache week, a part of cache key."
+    value: ${{ steps.run.outputs.cache_week }}
 
 runs:
   using: "composite"
   steps:
     - name: Install Go
-      uses: actions/setup-go@v3
+      uses: actions/setup-go@v4
       with:
-        go-version: "1.19.5"
+        go-version: "1.21.2"
+        cache: false
 
     - name: Run tool
       id: run
@@ -24,14 +29,11 @@ runs:
       uses: actions/cache@v3
       with:
         path: ${{ steps.run.outputs.cache_path }}
-        key: ${{ inputs.cache-key }}-${{ steps.run.outputs.cache_week }}-${{ hashFiles('**/go.mod') }}-${{ hashFiles('**') }}
+        key: ${{ inputs.cache-key }}-${{ steps.run.outputs.cache_week }}-${{ hashFiles('**/go.mod') }}
         restore-keys: |
-          ${{ inputs.cache-key }}-${{ steps.run.outputs.cache_week }}-${{ hashFiles('**/go.mod') }}
-          ${{ inputs.cache-key }}-${{ steps.run.outputs.cache_week }}
+          ${{ inputs.cache-key }}-${{ steps.run.outputs.cache_week }}-
 
     # we don't want them on CI
     - name: Clean test and fuzz caches
-      run: |
-        go clean -testcache
-        go clean -fuzzcache
+      run: go clean -testcache -fuzzcache
       shell: bash

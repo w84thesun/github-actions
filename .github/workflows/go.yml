@@ -10,7 +10,7 @@ on:
   pull_request_target:
     types:
       - labeled
-      - unlabeled # if GitHub Actions stuck, add and remove "no ci" label to force rebuild
+      - unlabeled # if GitHub Actions stuck, add and remove "not ready" label to force rebuild
       - opened
       - reopened
       - synchronize
@@ -23,6 +23,7 @@ env:
   GOLANGCI_LINT_CACHE: /home/runner/go/cache/lint
   GOMODCACHE: /home/runner/go/mod
   GOPROXY: https://proxy.golang.org
+  GOTOOLCHAIN: local
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   CONFORM_TOKEN: ${{ secrets.CONFORM_TOKEN }} # for tests; repo-scoped GITHUB_TOKEN is not enough to query org-level projects
 
@@ -36,20 +37,20 @@ jobs:
     if: >
       github.event_name != 'pull_request_target' ||
       (
-        !contains(github.event.pull_request.labels.*.name, 'no ci') &&
+        !contains(github.event.pull_request.labels.*.name, 'not ready') &&
         contains(github.event.pull_request.labels.*.name, 'trust')
       )
 
     steps:
       - name: Checkout code
         if: github.event_name != 'pull_request_target'
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       - name: Checkout pull request code
         if: github.event_name == 'pull_request_target'
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
@@ -76,20 +77,20 @@ jobs:
     if: >
       github.event_name != 'pull_request_target' ||
       (
-        !contains(github.event.pull_request.labels.*.name, 'no ci') &&
+        !contains(github.event.pull_request.labels.*.name, 'not ready') &&
         contains(github.event.pull_request.labels.*.name, 'trust')
       )
 
     steps:
       - name: Checkout code
         if: github.event_name != 'pull_request_target'
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       - name: Checkout pull request code
         if: github.event_name == 'pull_request_target'
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}

@@ -101,6 +101,18 @@ func TestRunPRChecks(t *testing.T) {
 				check: "Labels",
 				err:   fmt.Errorf(`That PR should not be merged yet.`),
 			},
+			{
+				check: "Labels",
+				err:   fmt.Errorf("That PR can't be merged yet; remove `not ready` label."),
+			},
+			{
+				check: "Labels",
+				err: fmt.Errorf(
+					"PR must have at least one of those labels:<br />" +
+						"blog/engineering, blog/marketing, code/bug, code/bug-regression, code/chore, " +
+						"code/enhancement, code/feature, deps, documentation, project.",
+				),
+			},
 			{check: "Size"},
 			{
 				check: "Sprint",
@@ -110,6 +122,7 @@ func TestRunPRChecks(t *testing.T) {
 				check: "Title",
 				err:   fmt.Errorf(`PR title must end with a latin letter or digit.`),
 			},
+
 			{check: "Body"},
 			{check: "Auto-merge"},
 		},
@@ -134,11 +147,11 @@ func TestCheckTitle(t *testing.T) {
 		expectedErr error
 	}{{
 		name:        "pull_request/title_without_dot",
-		title:       "I'm a title without a dot",
+		title:       "Test the title without a dot",
 		expectedErr: nil,
 	}, {
 		name:        "pull_request/title_with_a_digit",
-		title:       "I'm a title without a digit 1",
+		title:       "Test the title without a digit 1",
 		expectedErr: nil,
 	}, {
 		name:        "pull_request/title_with_dot",
@@ -150,8 +163,32 @@ func TestCheckTitle(t *testing.T) {
 		expectedErr: errors.New("PR title must end with a latin letter or digit."),
 	}, {
 		name:        "pull_request/title_with_backticks",
-		title:       "I'm a title with a `backticks`",
+		title:       "Test the title I'm a title with a `backticks`",
 		expectedErr: nil,
+	}, {
+		name:        "pull_request/title_without_uppercase",
+		title:       "test the title that does not start with an uppercase`",
+		expectedErr: errors.New("PR title must start with an uppercase letter."),
+	}, {
+		name:        "pull_request/title_with_imperative_verb",
+		title:       "Fix `$` path errors for sort",
+		expectedErr: nil,
+	}, {
+		name:        "pull_request/title_with_imperative_verb",
+		title:       "Document `not ready` issues label",
+		expectedErr: nil,
+	}, {
+		name:        "pull_request/title_with_imperative_verb",
+		title:       "Bump deps",
+		expectedErr: nil,
+	}, {
+		name:        "pull_request/title_with_invalid_imperative_verb",
+		title:       "Please do not merge this PR",
+		expectedErr: nil, // `prose` fails to detect this as a verb
+	}, {
+		name:        "pull_request/title_with_invalid_imperative_verb",
+		title:       "A title without an imperative verb at the beginning",
+		expectedErr: nil, // `prose` fails to detect this as a verb
 	}}
 
 	for _, tc := range cases {

@@ -24,7 +24,7 @@ import (
 	"github.com/FerretDB/github-actions/internal/testutil"
 )
 
-func TestExtract(t *testing.T) {
+func TestExtractFerretDB(t *testing.T) {
 	t.Run("pull_request", func(t *testing.T) {
 		getEnv := testutil.GetEnvFunc(t, map[string]string{
 			"GITHUB_BASE_REF":   "main",
@@ -36,12 +36,22 @@ func TestExtract(t *testing.T) {
 		})
 
 		action := githubactions.New(githubactions.WithGetenv(getEnv))
-		result, err := extract(action)
+		actual, err := extract(action)
 		require.NoError(t, err)
-		assert.Equal(t, "ferretdb", result.owner)
-		assert.Equal(t, "ferretdb-dev", result.name)
-		assert.Equal(t, "pr-extract-docker-tag", result.tag)
-		assert.Equal(t, "ghcr.io/ferretdb/ferretdb-dev:pr-extract-docker-tag", result.ghcr)
+
+		expected := &result{
+			allInOneImages: []string{
+				"ferretdb/all-in-one:pr-extract-docker-tag",
+				"ghcr.io/ferretdb/all-in-one:pr-extract-docker-tag",
+				"quay.io/ferretdb/all-in-one:pr-extract-docker-tag",
+			},
+			developmentImages: []string{
+				"ferretdb/ferretdb-dev:pr-extract-docker-tag",
+				"ghcr.io/ferretdb/ferretdb-dev:pr-extract-docker-tag",
+				"quay.io/ferretdb/ferretdb-dev:pr-extract-docker-tag",
+			},
+		}
+		assert.Equal(t, expected, actual)
 	})
 
 	t.Run("pull_request_target", func(t *testing.T) {
@@ -55,12 +65,22 @@ func TestExtract(t *testing.T) {
 		})
 
 		action := githubactions.New(githubactions.WithGetenv(getEnv))
-		result, err := extract(action)
+		actual, err := extract(action)
 		require.NoError(t, err)
-		assert.Equal(t, "ferretdb", result.owner)
-		assert.Equal(t, "ferretdb-dev", result.name)
-		assert.Equal(t, "pr-extract-docker-tag", result.tag)
-		assert.Equal(t, "ghcr.io/ferretdb/ferretdb-dev:pr-extract-docker-tag", result.ghcr)
+
+		expected := &result{
+			allInOneImages: []string{
+				"ferretdb/all-in-one:pr-extract-docker-tag",
+				"ghcr.io/ferretdb/all-in-one:pr-extract-docker-tag",
+				"quay.io/ferretdb/all-in-one:pr-extract-docker-tag",
+			},
+			developmentImages: []string{
+				"ferretdb/ferretdb-dev:pr-extract-docker-tag",
+				"ghcr.io/ferretdb/ferretdb-dev:pr-extract-docker-tag",
+				"quay.io/ferretdb/ferretdb-dev:pr-extract-docker-tag",
+			},
+		}
+		assert.Equal(t, expected, actual)
 	})
 
 	t.Run("pull_request/dependabot", func(t *testing.T) {
@@ -74,12 +94,22 @@ func TestExtract(t *testing.T) {
 		})
 
 		action := githubactions.New(githubactions.WithGetenv(getEnv))
-		result, err := extract(action)
+		actual, err := extract(action)
 		require.NoError(t, err)
-		assert.Equal(t, "ferretdb", result.owner)
-		assert.Equal(t, "ferretdb-dev", result.name)
-		assert.Equal(t, "pr-mongo-go-driver-29d768e", result.tag)
-		assert.Equal(t, "ghcr.io/ferretdb/ferretdb-dev:pr-mongo-go-driver-29d768e", result.ghcr)
+
+		expected := &result{
+			allInOneImages: []string{
+				"ferretdb/all-in-one:pr-mongo-go-driver-29d768e",
+				"ghcr.io/ferretdb/all-in-one:pr-mongo-go-driver-29d768e",
+				"quay.io/ferretdb/all-in-one:pr-mongo-go-driver-29d768e",
+			},
+			developmentImages: []string{
+				"ferretdb/ferretdb-dev:pr-mongo-go-driver-29d768e",
+				"ghcr.io/ferretdb/ferretdb-dev:pr-mongo-go-driver-29d768e",
+				"quay.io/ferretdb/ferretdb-dev:pr-mongo-go-driver-29d768e",
+			},
+		}
+		assert.Equal(t, expected, actual)
 	})
 
 	t.Run("push/main", func(t *testing.T) {
@@ -93,12 +123,51 @@ func TestExtract(t *testing.T) {
 		})
 
 		action := githubactions.New(githubactions.WithGetenv(getEnv))
-		result, err := extract(action)
+		actual, err := extract(action)
 		require.NoError(t, err)
-		assert.Equal(t, "ferretdb", result.owner)
-		assert.Equal(t, "ferretdb-dev", result.name)
-		assert.Equal(t, "main", result.tag)
-		assert.Equal(t, "ghcr.io/ferretdb/ferretdb-dev:main", result.ghcr)
+
+		expected := &result{
+			allInOneImages: []string{
+				"ferretdb/all-in-one:main",
+				"ghcr.io/ferretdb/all-in-one:main",
+				"quay.io/ferretdb/all-in-one:main",
+			},
+			developmentImages: []string{
+				"ferretdb/ferretdb-dev:main",
+				"ghcr.io/ferretdb/ferretdb-dev:main",
+				"quay.io/ferretdb/ferretdb-dev:main",
+			},
+		}
+		assert.Equal(t, expected, actual)
+	})
+
+	t.Run("push/release", func(t *testing.T) {
+		getEnv := testutil.GetEnvFunc(t, map[string]string{
+			"GITHUB_BASE_REF":   "",
+			"GITHUB_EVENT_NAME": "push",
+			"GITHUB_HEAD_REF":   "",
+			"GITHUB_REF_NAME":   "releases/1.2",
+			"GITHUB_REF_TYPE":   "branch",
+			"GITHUB_REPOSITORY": "FerretDB/FerretDB",
+		})
+
+		action := githubactions.New(githubactions.WithGetenv(getEnv))
+		actual, err := extract(action)
+		require.NoError(t, err)
+
+		expected := &result{
+			allInOneImages: []string{
+				"ferretdb/all-in-one:releases-1.2",
+				"ghcr.io/ferretdb/all-in-one:releases-1.2",
+				"quay.io/ferretdb/all-in-one:releases-1.2",
+			},
+			developmentImages: []string{
+				"ferretdb/ferretdb-dev:releases-1.2",
+				"ghcr.io/ferretdb/ferretdb-dev:releases-1.2",
+				"quay.io/ferretdb/ferretdb-dev:releases-1.2",
+			},
+		}
+		assert.Equal(t, expected, actual)
 	})
 
 	t.Run("push/tag/beta", func(t *testing.T) {
@@ -112,12 +181,27 @@ func TestExtract(t *testing.T) {
 		})
 
 		action := githubactions.New(githubactions.WithGetenv(getEnv))
-		result, err := extract(action)
+		actual, err := extract(action)
 		require.NoError(t, err)
-		assert.Equal(t, "ferretdb", result.owner)
-		assert.Equal(t, "ferretdb-dev", result.name)
-		assert.Equal(t, "0.1.0-beta", result.tag)
-		assert.Equal(t, "ghcr.io/ferretdb/ferretdb-dev:0.1.0-beta", result.ghcr)
+
+		expected := &result{
+			allInOneImages: []string{
+				"ferretdb/all-in-one:0.1.0-beta",
+				"ghcr.io/ferretdb/all-in-one:0.1.0-beta",
+				"quay.io/ferretdb/all-in-one:0.1.0-beta",
+			},
+			developmentImages: []string{
+				"ferretdb/ferretdb-dev:0.1.0-beta",
+				"ghcr.io/ferretdb/ferretdb-dev:0.1.0-beta",
+				"quay.io/ferretdb/ferretdb-dev:0.1.0-beta",
+			},
+			productionImages: []string{
+				"ferretdb/ferretdb:0.1.0-beta",
+				"ghcr.io/ferretdb/ferretdb:0.1.0-beta",
+				"quay.io/ferretdb/ferretdb:0.1.0-beta",
+			},
+		}
+		assert.Equal(t, expected, actual)
 	})
 
 	t.Run("push/tag/release", func(t *testing.T) {
@@ -131,12 +215,36 @@ func TestExtract(t *testing.T) {
 		})
 
 		action := githubactions.New(githubactions.WithGetenv(getEnv))
-		result, err := extract(action)
+		actual, err := extract(action)
 		require.NoError(t, err)
-		assert.Equal(t, "ferretdb", result.owner)
-		assert.Equal(t, "ferretdb-dev", result.name)
-		assert.Equal(t, "0.1.0", result.tag)
-		assert.Equal(t, "ghcr.io/ferretdb/ferretdb-dev:0.1.0", result.ghcr)
+
+		expected := &result{
+			allInOneImages: []string{
+				"ferretdb/all-in-one:0.1.0",
+				"ferretdb/all-in-one:latest",
+				"ghcr.io/ferretdb/all-in-one:0.1.0",
+				"ghcr.io/ferretdb/all-in-one:latest",
+				"quay.io/ferretdb/all-in-one:0.1.0",
+				"quay.io/ferretdb/all-in-one:latest",
+			},
+			developmentImages: []string{
+				"ferretdb/ferretdb-dev:0.1.0",
+				"ferretdb/ferretdb-dev:latest",
+				"ghcr.io/ferretdb/ferretdb-dev:0.1.0",
+				"ghcr.io/ferretdb/ferretdb-dev:latest",
+				"quay.io/ferretdb/ferretdb-dev:0.1.0",
+				"quay.io/ferretdb/ferretdb-dev:latest",
+			},
+			productionImages: []string{
+				"ferretdb/ferretdb:0.1.0",
+				"ferretdb/ferretdb:latest",
+				"ghcr.io/ferretdb/ferretdb:0.1.0",
+				"ghcr.io/ferretdb/ferretdb:latest",
+				"quay.io/ferretdb/ferretdb:0.1.0",
+				"quay.io/ferretdb/ferretdb:latest",
+			},
+		}
+		assert.Equal(t, expected, actual)
 	})
 
 	t.Run("push/tag/wrong", func(t *testing.T) {
@@ -165,12 +273,22 @@ func TestExtract(t *testing.T) {
 		})
 
 		action := githubactions.New(githubactions.WithGetenv(getEnv))
-		result, err := extract(action)
+		actual, err := extract(action)
 		require.NoError(t, err)
-		assert.Equal(t, "ferretdb", result.owner)
-		assert.Equal(t, "ferretdb-dev", result.name)
-		assert.Equal(t, "main", result.tag)
-		assert.Equal(t, "ghcr.io/ferretdb/ferretdb-dev:main", result.ghcr)
+
+		expected := &result{
+			allInOneImages: []string{
+				"ferretdb/all-in-one:main",
+				"ghcr.io/ferretdb/all-in-one:main",
+				"quay.io/ferretdb/all-in-one:main",
+			},
+			developmentImages: []string{
+				"ferretdb/ferretdb-dev:main",
+				"ghcr.io/ferretdb/ferretdb-dev:main",
+				"quay.io/ferretdb/ferretdb-dev:main",
+			},
+		}
+		assert.Equal(t, expected, actual)
 	})
 
 	t.Run("workflow_run", func(t *testing.T) {
@@ -184,11 +302,53 @@ func TestExtract(t *testing.T) {
 		})
 
 		action := githubactions.New(githubactions.WithGetenv(getEnv))
-		result, err := extract(action)
+		actual, err := extract(action)
 		require.NoError(t, err)
-		assert.Equal(t, "ferretdb", result.owner)
-		assert.Equal(t, "ferretdb-dev", result.name)
-		assert.Equal(t, "main", result.tag)
-		assert.Equal(t, "ghcr.io/ferretdb/ferretdb-dev:main", result.ghcr)
+
+		expected := &result{
+			allInOneImages: []string{
+				"ferretdb/all-in-one:main",
+				"ghcr.io/ferretdb/all-in-one:main",
+				"quay.io/ferretdb/all-in-one:main",
+			},
+			developmentImages: []string{
+				"ferretdb/ferretdb-dev:main",
+				"ghcr.io/ferretdb/ferretdb-dev:main",
+				"quay.io/ferretdb/ferretdb-dev:main",
+			},
+		}
+		assert.Equal(t, expected, actual)
 	})
+}
+
+func TestExtractOther(t *testing.T) {
+	t.Run("push/main", func(t *testing.T) {
+		getEnv := testutil.GetEnvFunc(t, map[string]string{
+			"GITHUB_BASE_REF":   "",
+			"GITHUB_EVENT_NAME": "push",
+			"GITHUB_HEAD_REF":   "",
+			"GITHUB_REF_NAME":   "main",
+			"GITHUB_REF_TYPE":   "branch",
+			"GITHUB_REPOSITORY": "FerretDB/beacon",
+		})
+
+		action := githubactions.New(githubactions.WithGetenv(getEnv))
+		actual, err := extract(action)
+		require.NoError(t, err)
+
+		expected := &result{
+			developmentImages: []string{
+				"ghcr.io/ferretdb/beacon-dev:main",
+			},
+		}
+		assert.Equal(t, expected, actual)
+	})
+}
+
+//nolint:lll // it is more readable this way
+func TestImageURL(t *testing.T) {
+	// expected URLs should work
+	assert.Equal(t, "https://ghcr.io/ferretdb/all-in-one:pr-extract-docker-tag", imageURL("ghcr.io/ferretdb/all-in-one:pr-extract-docker-tag"))
+	assert.Equal(t, "https://quay.io/ferretdb/all-in-one:pr-extract-docker-tag", imageURL("quay.io/ferretdb/all-in-one:pr-extract-docker-tag"))
+	assert.Equal(t, "https://hub.docker.com/r/ferretdb/all-in-one/tags", imageURL("ferretdb/all-in-one:pr-extract-docker-tag"))
 }
